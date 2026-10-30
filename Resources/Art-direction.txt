@@ -1,0 +1,7 @@
+Dock artwork generated with the built-in image_gen tool, 2026-10-30.
+Project asset: AppIcon.png
+Native .icns packaging: Tools/BuildIcon.swift (multiple sizes, rounded macOS tile).
+Menu icons are hand-authored pixel grids in Sources/PixelIcons.swift.
+
+Generation prompt:
+Use case: logo-brand. Create a single finished macOS app icon artwork, square 1024x1024. A cute tiny pixel-art keyboard character for an app called Keypad Companion (do not include any text). Exactly three cream/tan keycaps and one brown rotary dial on its top, a friendly face with two espresso brown square eyes and a tiny smile on the front, two small stubby feet. Front three-quarter isometric view. Authentic coherent chunky 8-bit / 16-bit pixel art, hard square pixel edges, no smooth cartoon outlines. Warm cozy coffee-shop palette: espresso, cocoa brown, toasted caramel, buttercream, oat milk tan. Character occupies ~75% of canvas with generous clear margin. Background a single solid muted cocoa brown square; do not draw a phone, Dock, desktop, frames, a border, UI, labels or surrounding items. Small pixel highlights and restrained blocky shading give the keyboard warmth. It must look adorable and recognizable when reduced to 32 pixels; prioritize strong silhouette and three clear keys plus one dial. No text, watermark, or brand logo. App-icon artwork only.

@@ -1,0 +1,14 @@
+# One-time trigger configuration. Keypad Companion supplies the actions.
+# F13-F18 are reserved while the companion is running.
+model: ch57x-2
+orientation: normal
+rows: 1
+columns: 3
+knobs: 1
+layers:
+  - buttons:
+      - ["f13", "f14", "f15"]
+    knobs:
+      - ccw: "f16"
+        press: "f17"
+        cw: "f18"

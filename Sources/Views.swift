@@ -1,0 +1,474 @@
+import AppKit
+import SwiftUI
+
+private enum CoffeeTheme {
+    static let espresso = Color(red: 0.16, green: 0.105, blue: 0.08)
+    static let cocoa = Color(red: 0.205, green: 0.145, blue: 0.11)
+    static let roast = Color(red: 0.26, green: 0.185, blue: 0.14)
+    static let raised = Color(red: 0.31, green: 0.225, blue: 0.17)
+    static let cream = Color(red: 0.96, green: 0.89, blue: 0.78)
+    static let muted = Color(red: 0.76, green: 0.65, blue: 0.53)
+    static let latte = Color(red: 0.87, green: 0.70, blue: 0.49)
+    static let line = Color(red: 0.50, green: 0.36, blue: 0.26).opacity(0.36)
+    static let sage = Color(red: 0.70, green: 0.77, blue: 0.57)
+}
+
+private extension Profile {
+    var pixelIcon: PixelIcon.Kind {
+        switch self { case .coding: return .coffee; case .music: return .headphones; case .calls: return .microphone }
+    }
+    var accent: Color {
+        switch self {
+        case .coding: return CoffeeTheme.latte
+        case .music: return CoffeeTheme.sage
+        case .calls: return Color(red: 0.80, green: 0.68, blue: 0.77)
+        }
+    }
+    var summary: String {
+        switch self {
+        case .coding: return "Dictation & reasoning"
+        case .music: return "Spotify playback"
+        case .calls: return "Microphone & call controls"
+        }
+    }
+}
+
+private struct CoffeeButtonStyle: ButtonStyle {
+    var prominent = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(prominent ? CoffeeTheme.espresso : CoffeeTheme.cream)
+            .padding(.horizontal, 13).padding(.vertical, 9)
+            .background(prominent ? CoffeeTheme.latte : CoffeeTheme.raised,
+                        in: RoundedRectangle(cornerRadius: 9))
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+    }
+}
+
+struct CompanionView: View {
+    @ObservedObject var model: AppModel
+    @State private var hovered: Profile?
+    @State private var settingsHovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Choose a profile").font(.system(size: 12, weight: .semibold))
+                Spacer()
+                if model.paused {
+                    Text("Paused").font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(CoffeeTheme.muted)
+                }
+            }
+            .padding(.horizontal, 11).padding(.top, 6).padding(.bottom, 12)
+
+            VStack(spacing: 5) {
+                ForEach(Profile.allCases) { profile in
+                    let selected = model.profile == profile
+                    Button { model.selectProfile(profile) } label: {
+                        HStack(spacing: 13) {
+                            PixelIcon(kind: profile.pixelIcon, color: selected ? CoffeeTheme.espresso : profile.accent)
+                                .frame(width: 28, height: 28)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(profile.title).font(.system(size: 14, weight: .semibold))
+                                Text(profile.summary).font(.system(size: 10))
+                                    .foregroundStyle(selected ? CoffeeTheme.espresso.opacity(0.75) : CoffeeTheme.muted)
+                            }
+                            Spacer()
+                            if selected {
+                                Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
+                            }
+                        }
+                        .foregroundStyle(selected ? CoffeeTheme.espresso : CoffeeTheme.cream)
+                        .padding(.horizontal, 12).padding(.vertical, 12)
+                        .background(selected ? CoffeeTheme.latte : (hovered == profile ? CoffeeTheme.raised : Color.clear),
+                                    in: RoundedRectangle(cornerRadius: 11))
+                        .contentShape(RoundedRectangle(cornerRadius: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovered = $0 ? profile : nil }
+                    .accessibilityLabel("\(profile.title) profile\(selected ? ", selected" : "")")
+                    .accessibilityHint("Switches your keypad to \(profile.title)")
+                }
+            }
+            Rectangle().fill(CoffeeTheme.line).frame(height: 1).padding(.vertical, 12)
+            Button { model.openSettings() } label: {
+                HStack {
+                    Text("Settings…")
+                    Spacer()
+                    Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .semibold))
+                }
+                .font(.system(size: 12)).foregroundStyle(CoffeeTheme.cream)
+                .padding(.horizontal, 11).padding(.vertical, 8)
+                .background(settingsHovered ? CoffeeTheme.roast : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).onHover { settingsHovered = $0 }
+            Text("Right-click the menu icon to switch quickly.")
+                .font(.system(size: 9)).foregroundStyle(CoffeeTheme.muted)
+                .padding(.horizontal, 11).padding(.top, 9).padding(.bottom, 4)
+        }
+        .padding(12).frame(width: 296)
+        .foregroundStyle(CoffeeTheme.cream).background(CoffeeTheme.cocoa)
+        .preferredColorScheme(.dark)
+    }
+}
+
+private enum SettingsPage: String, CaseIterable, Identifiable {
+    case overview = "Overview", profiles = "Profiles", preferences = "Preferences"
+    var id: String { rawValue }
+    var icon: PixelIcon.Kind {
+        switch self { case .overview: return .keyboard; case .profiles: return .pencil; case .preferences: return .dial }
+    }
+}
+
+struct PreferencesView: View {
+    @ObservedObject var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var page: SettingsPage = .overview
+    @State private var editingProfile: Profile = .coding
+    @State private var resetRequested = false
+    @State private var diagnosticsExpanded = false
+    @State private var hoveredPage: SettingsPage?
+
+    private var needsSetup: Bool { !model.accessibilityReady || !model.inputReady }
+    private var connected: Bool { model.deviceStatus == "Keypad connected" }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            sidebar
+            Rectangle().fill(CoffeeTheme.line).frame(width: 1)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(page.rawValue).font(.system(size: 25, weight: .semibold, design: .rounded))
+                    Spacer()
+                    statusLabel
+                }
+                .padding(.horizontal, 28).padding(.top, 28).padding(.bottom, 20)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        switch page {
+                        case .overview: overview
+                        case .profiles: profileEditor
+                        case .preferences: preferences
+                        }
+                    }
+                    .padding(.horizontal, 28).padding(.bottom, 28)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .id(page)
+            }
+            .background(CoffeeTheme.cocoa)
+        }
+        .frame(width: 780, height: 600)
+        .background(CoffeeTheme.espresso)
+        .foregroundStyle(CoffeeTheme.cream)
+        .tint(CoffeeTheme.latte)
+        .preferredColorScheme(.dark)
+        .onAppear { editingProfile = model.profile }
+        .alert("Reset \(editingProfile.title) controls?", isPresented: $resetRequested) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset controls", role: .destructive) { model.resetMappings(for: editingProfile) }
+        } message: { Text("This restores the six default actions for \(editingProfile.title). Your other profiles stay as they are.") }
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            PixelIcon(kind: .keyboard, color: CoffeeTheme.latte).frame(width: 60, height: 42)
+                .padding(.bottom, 13)
+            Text("Keypad\nCompanion").font(.system(size: 19, weight: .semibold, design: .rounded))
+                .lineSpacing(2).padding(.bottom, 34)
+            VStack(spacing: 5) {
+                ForEach(SettingsPage.allCases) { item in
+                    Button {
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.15)) { page = item }
+                    } label: {
+                        HStack(spacing: 10) {
+                            PixelIcon(kind: item.icon, color: page == item ? CoffeeTheme.latte : CoffeeTheme.muted)
+                                .frame(width: 24, height: 19)
+                            Text(item.rawValue).font(.system(size: 12, weight: page == item ? .semibold : .regular))
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(page == item ? CoffeeTheme.cream : CoffeeTheme.muted)
+                        .padding(.horizontal, 11).padding(.vertical, 11)
+                        .background(page == item ? CoffeeTheme.roast : (hoveredPage == item ? CoffeeTheme.cocoa : Color.clear),
+                                    in: RoundedRectangle(cornerRadius: 9))
+                        .contentShape(RoundedRectangle(cornerRadius: 9))
+                    }
+                    .buttonStyle(.plain).onHover { hoveredPage = $0 ? item : nil }
+                    .accessibilityLabel("\(item.rawValue)\(page == item ? ", selected" : "")")
+                }
+            }
+            Spacer()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    PixelIcon(kind: model.profile.pixelIcon, color: model.profile.accent).frame(width: 16, height: 16)
+                    Text(model.profile.title).font(.system(size: 12, weight: .medium))
+                }
+                Text(model.paused ? "Keypad actions paused" : "Your active profile")
+                    .font(.system(size: 10)).foregroundStyle(CoffeeTheme.muted)
+            }
+            .padding(.horizontal, 9).padding(.bottom, 3)
+        }
+        .padding(.horizontal, 15).padding(.vertical, 28).frame(width: 172)
+        .background(CoffeeTheme.espresso)
+    }
+
+    private var statusLabel: some View {
+        HStack(spacing: 6) {
+            Circle().fill(needsSetup ? CoffeeTheme.latte : (connected ? CoffeeTheme.sage : CoffeeTheme.muted)).frame(width: 6, height: 6)
+            Text(needsSetup ? "Setup needed" : (connected ? "Keypad connected" : "Waiting for keypad"))
+                .font(.system(size: 10)).foregroundStyle(CoffeeTheme.muted)
+        }
+    }
+
+    @ViewBuilder private var overview: some View {
+        if needsSetup { setupPanel }
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeading("Active profile", subtitle: "Choose here or from the menu bar. It stays selected when you switch apps.")
+            HStack(spacing: 9) {
+                ForEach(Profile.allCases) { profile in
+                    profileChoice(profile, selected: model.profile == profile) { model.selectProfile(profile) }
+                }
+            }
+        }
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Your \(model.profile.title.lowercased()) controls").font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button("Customize") { editingProfile = model.profile; page = .profiles }
+                    .buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundStyle(CoffeeTheme.latte)
+            }
+            HStack(alignment: .top, spacing: 10) {
+                keySummary(.key1, number: "1")
+                keySummary(.key2, number: "2")
+                keySummary(.key3, number: "3")
+            }
+            Rectangle().fill(CoffeeTheme.line).frame(height: 1)
+            HStack(spacing: 17) {
+                PixelIcon(kind: .dial, color: CoffeeTheme.latte).frame(width: 38, height: 38)
+                VStack(alignment: .leading, spacing: 7) {
+                    dialSummary("Turn left", .ccw)
+                    dialSummary("Press", .press)
+                    dialSummary("Turn right", .cw)
+                }
+            }
+        }
+        .padding(18).background(CoffeeTheme.roast, in: RoundedRectangle(cornerRadius: 15))
+        .opacity(model.paused ? 0.6 : 1)
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(model.paused ? "Taking a break" : "Keypad actions are on")
+                    .font(.system(size: 13, weight: .medium))
+                Text(model.paused ? "Resume when you’re ready." : "Pause any time. Your profile stays selected.")
+                    .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+            }
+            Spacer()
+            Button(model.paused ? "Resume controls" : "Pause controls") { model.paused.toggle() }
+                .buttonStyle(CoffeeButtonStyle(prominent: model.paused))
+        }
+        DisclosureGroup(isExpanded: $diagnosticsExpanded) {
+            VStack(alignment: .leading, spacing: 9) {
+                Text("Press each key and turn the dial to check its input. Pause controls first if you only want to test the buttons.")
+                    .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                Text(model.lastInput).font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .textSelection(.enabled)
+                Text(model.lastAction).font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted).textSelection(.enabled)
+                Button("Reconnect keypad") { model.reconnect() }.buttonStyle(CoffeeButtonStyle())
+            }.padding(.top, 12)
+        } label: {
+            Text("Check keypad input").font(.system(size: 12, weight: .medium))
+        }
+    }
+
+    @ViewBuilder private var profileEditor: some View {
+        sectionHeading("Make each profile yours", subtitle: "Pick a profile to edit. Your active profile won’t change.")
+        HStack(spacing: 9) {
+            ForEach(Profile.allCases) { profile in
+                profileChoice(profile, selected: editingProfile == profile) { editingProfile = profile }
+            }
+        }
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(ControlKey.allCases) { control in
+                HStack(spacing: 12) {
+                    Text(control.title).font(.system(size: 12, weight: .medium)).frame(width: 78, alignment: .leading)
+                    Spacer(minLength: 0)
+                    Menu {
+                        ForEach(KeyAction.allCases) { action in
+                            Button {
+                                model.setAction(action, for: control, in: editingProfile)
+                            } label: {
+                                if model.action(for: control, in: editingProfile) == action {
+                                    Label(action.title, systemImage: "checkmark")
+                                } else { Text(action.title) }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text(model.action(for: control, in: editingProfile).title).lineLimit(1)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold))
+                        }
+                        .font(.system(size: 12)).foregroundStyle(CoffeeTheme.cream)
+                        .padding(.horizontal, 12).padding(.vertical, 10)
+                        .background(CoffeeTheme.raised, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden)
+                    .frame(maxWidth: 285)
+                    .accessibilityLabel("\(control.title) action")
+                }
+                .padding(.vertical, 9)
+                if control != .cw { Rectangle().fill(CoffeeTheme.line).frame(height: 1) }
+            }
+        }
+        HStack {
+            Label("Saved automatically", systemImage: "checkmark.circle")
+                .font(.system(size: 11)).foregroundStyle(CoffeeTheme.sage)
+            Spacer()
+            Button("Reset \(editingProfile.title) controls…") { resetRequested = true }
+                .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+        }
+        Text(editingProfile == .coding ? "Coding actions work when Codex is in front. Dictation uses your existing hold-to-talk shortcut." :
+             editingProfile == .music ? "Music actions control Spotify, even when you’re using another app." :
+             "Calls use the app chosen in Preferences. Microphone and camera shortcuts require that app in front.")
+            .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted).fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder private var preferences: some View {
+        VStack(alignment: .leading, spacing: 17) {
+            sectionHeading("Everyday preferences")
+            HStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Start at login").font(.system(size: 13, weight: .medium))
+                    Text(model.loginStatus).font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                }
+                Spacer()
+                Toggle("Start at login", isOn: Binding(get: { model.loginEnabled }, set: { model.setLoginEnabled($0) }))
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            rule
+            HStack {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Volume per dial step").font(.system(size: 13, weight: .medium))
+                    Text("Applies to Music and Calls.").font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                }
+                Spacer()
+                HStack(spacing: 10) {
+                    Button { model.volumeStep = max(1, model.volumeStep - 1) } label: { Image(systemName: "minus") }
+                        .buttonStyle(CoffeeButtonStyle()).disabled(model.volumeStep <= 1)
+                        .accessibilityLabel("Decrease volume step")
+                    Text("\(Int(model.volumeStep))%").font(.system(size: 12, weight: .semibold)).monospacedDigit().frame(width: 35)
+                    Button { model.volumeStep = min(20, model.volumeStep + 1) } label: { Image(systemName: "plus") }
+                        .buttonStyle(CoffeeButtonStyle()).disabled(model.volumeStep >= 20)
+                        .accessibilityLabel("Increase volume step")
+                }
+            }
+        }
+        VStack(alignment: .leading, spacing: 14) {
+            sectionHeading("Calls", subtitle: "Automatic uses Discord, Zoom, or Teams when it’s in front. Otherwise, Discord is the default.")
+            Picker("Call app", selection: $model.callsTarget) {
+                ForEach(CallTarget.allCases) { Text($0.title).tag($0) }
+            }.font(.system(size: 12))
+            Text("The second button toggles deafen in Discord, or camera in Zoom and Teams. Dial volume and mute control your Mac’s audio output, not your microphone.")
+                .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted).fixedSize(horizontal: false, vertical: true)
+        }
+        VStack(alignment: .leading, spacing: 14) {
+            sectionHeading("Connection & permissions")
+            permissionRow("Accessibility", detail: "Send shortcuts to your apps.", ready: model.accessibilityReady) { model.openAccessibilitySettings() }
+            permissionRow("Input Monitoring", detail: "Receive the keypad’s button signals.", ready: model.inputReady) { model.openInputSettings() }
+            if needsSetup {
+                Button("Set up permissions…") { model.requestPermissions() }.buttonStyle(CoffeeButtonStyle(prominent: true))
+            }
+            HStack {
+                Text(model.deviceStatus).font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                Spacer()
+                Button("Reconnect") { model.reconnect() }.buttonStyle(CoffeeButtonStyle())
+            }
+            Text("Spotify may ask for Automation access the first time you use Music. The six F13–F18 keys are reserved while this app runs.")
+                .font(.system(size: 10)).foregroundStyle(CoffeeTheme.muted).fixedSize(horizontal: false, vertical: true)
+        }
+        rule
+        HStack {
+            Text("Closing settings keeps the menu-bar app running.")
+                .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+            Spacer()
+            Button("Quit app") { model.quit() }.buttonStyle(CoffeeButtonStyle())
+        }
+    }
+
+    private var setupPanel: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            Label("Let’s connect your keypad", systemImage: "hand.wave")
+                .font(.system(size: 15, weight: .semibold))
+            Text("Two macOS permissions let your keypad control your apps. Enable Keypad Companion in each settings pane.")
+                .font(.system(size: 12)).foregroundStyle(CoffeeTheme.muted).fixedSize(horizontal: false, vertical: true)
+            permissionRow("Accessibility", detail: "Send app shortcuts", ready: model.accessibilityReady) { model.openAccessibilitySettings() }
+            permissionRow("Input Monitoring", detail: "Read keypad buttons", ready: model.inputReady) { model.openInputSettings() }
+            Button("Set up permissions…") { model.requestPermissions() }.buttonStyle(CoffeeButtonStyle(prominent: true))
+            Text("If macOS asks you to quit and reopen, do that once after enabling access.")
+                .font(.system(size: 10)).foregroundStyle(CoffeeTheme.muted)
+        }
+        .padding(18).background(CoffeeTheme.roast, in: RoundedRectangle(cornerRadius: 15))
+    }
+
+    private func permissionRow(_ title: String, detail: String, ready: Bool, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: ready ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 15)).foregroundStyle(ready ? CoffeeTheme.sage : CoffeeTheme.latte)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 12, weight: .medium))
+                Text(detail).font(.system(size: 10)).foregroundStyle(CoffeeTheme.muted)
+            }
+            Spacer()
+            Button(ready ? "Manage" : "Open settings", action: action)
+                .buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundStyle(CoffeeTheme.latte)
+        }
+    }
+
+    private func sectionHeading(_ title: String, subtitle: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.system(size: 14, weight: .semibold))
+            if let subtitle {
+                Text(subtitle).font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func profileChoice(_ profile: Profile, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                PixelIcon(kind: profile.pixelIcon, color: selected ? CoffeeTheme.espresso : profile.accent).frame(width: 22, height: 22)
+                Text(profile.title).font(.system(size: 12, weight: .semibold))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(selected ? CoffeeTheme.espresso : CoffeeTheme.cream)
+            .padding(.horizontal, 13).padding(.vertical, 13)
+            .frame(maxWidth: .infinity)
+            .background(selected ? CoffeeTheme.latte : CoffeeTheme.roast, in: RoundedRectangle(cornerRadius: 11))
+            .contentShape(RoundedRectangle(cornerRadius: 11))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(profile.title)\(selected ? ", selected" : "")")
+    }
+
+    private func keySummary(_ control: ControlKey, number: String) -> some View {
+        VStack(spacing: 9) {
+            Text(number).font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundStyle(CoffeeTheme.espresso).frame(width: 50, height: 40)
+                .background(CoffeeTheme.latte, in: RoundedRectangle(cornerRadius: 8))
+                .shadow(color: CoffeeTheme.espresso.opacity(0.3), radius: 0, y: 3)
+            Text(model.actionTitle(for: control)).font(.system(size: 11)).multilineTextAlignment(.center)
+                .lineLimit(2).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true)
+        }.frame(maxWidth: .infinity)
+    }
+    private func dialSummary(_ label: String, _ control: ControlKey) -> some View {
+        HStack(spacing: 10) {
+            Text(label).font(.system(size: 10)).foregroundStyle(CoffeeTheme.muted).frame(width: 58, alignment: .leading)
+            Text(model.actionTitle(for: control)).font(.system(size: 11))
+        }
+    }
+    private var rule: some View { Rectangle().fill(CoffeeTheme.line).frame(height: 1) }
+}

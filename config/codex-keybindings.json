@@ -1,0 +1,6 @@
+[
+  { "command": "composer.clear", "key": "Ctrl+Shift+1" },
+  { "command": "composer.decreaseReasoningEffort", "key": "Ctrl+Shift+0" },
+  { "command": "composer.increaseReasoningEffort", "key": "Ctrl+Shift+2" },
+  { "command": "globalDictationHold", "key": "Ctrl+Shift+D" }
+]
