@@ -1,0 +1,48 @@
+name: Build Mac download
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  mac-download:
+    runs-on: macos-15
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check controls and profiles
+        run: |
+          mkdir -p .cache
+          swiftc -swift-version 5 -module-cache-path .cache Sources/Domain.swift Tests/main.swift -o .cache/domain-tests
+          .cache/domain-tests
+
+      - name: Build the app
+        run: bash build.sh
+
+      - name: Package the download
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          APP="dist/Keypad Companion.app"
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")
+          test "$RELEASE_TAG" = "v$VERSION"
+          codesign --verify --strict "$APP"
+          lipo -verify_arch arm64 "$APP/Contents/MacOS/KeypadCompanion"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" dist/Keypad-Companion-macOS.zip
+          unzip -t dist/Keypad-Companion-macOS.zip
+
+      - name: Attach app and keypad setup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" dist/Keypad-Companion-macOS.zip config/keypad-bindings.yaml
