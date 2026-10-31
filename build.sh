@@ -2,7 +2,17 @@
 set -euo pipefail
 SOURCE_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUTPUT_DIR="${1:-$SOURCE_DIR/dist}"
-APP="$OUTPUT_DIR/Keypad Companion.app"
+PREVIEW="${KEYPAD_PREVIEW:-0}"
+if [[ "$PREVIEW" == 1 ]]; then
+  APP="$OUTPUT_DIR/Keypad Lighting Preview.app"
+  BUNDLE_ID="local.pranay.keypadcompanion.lightingpreview"
+elif [[ "$PREVIEW" == 0 ]]; then
+  APP="$OUTPUT_DIR/Keypad Companion.app"
+  BUNDLE_ID="local.pranay.keypadcompanion"
+else
+  echo "KEYPAD_PREVIEW must be 0 or 1" >&2
+  exit 1
+fi
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$SOURCE_DIR/.cache"
 swift -module-cache-path "$SOURCE_DIR/.cache" "$SOURCE_DIR/Tools/BuildIcon.swift" \
   "$SOURCE_DIR/Resources/AppIcon.png" "$SOURCE_DIR/.cache/AppIcon.iconset"
@@ -20,8 +30,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>Keypad Companion</string>
 <key>CFBundleExecutable</key><string>KeypadCompanion</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleVersion</key><string>3</string>
-<key>CFBundleShortVersionString</key><string>0.2.1</string>
+<key>CFBundleVersion</key><string>4</string>
+<key>CFBundleShortVersionString</key><string>0.3.0</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
@@ -30,7 +40,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>NSInputMonitoringUsageDescription</key><string>Read controls from your Bright Data keypad.</string>
 </dict></plist>
 PLIST
-codesign --force --sign - --identifier local.pranay.keypadcompanion \
-  -r '=designated => identifier "local.pranay.keypadcompanion"' "$APP"
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$APP/Contents/Info.plist"
+if [[ "$PREVIEW" == 1 ]]; then
+  /usr/libexec/PlistBuddy -c 'Add :KPHLightingPreview bool true' "$APP/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Keypad Lighting Preview' "$APP/Contents/Info.plist"
+fi
+codesign --force --sign - --identifier "$BUNDLE_ID" \
+  -r "=designated => identifier \"$BUNDLE_ID\"" "$APP"
 codesign --verify --strict "$APP"
 echo "Built: $APP"

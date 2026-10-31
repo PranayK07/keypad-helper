@@ -2,13 +2,20 @@ import AppKit
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    let model = AppModel()
+    let model: AppModel = {
+        let requested = CommandLine.arguments.compactMap { argument -> LightingPreview? in
+            guard argument.hasPrefix("--lighting-preview=") else { return nil }
+            return LightingPreview(rawValue: String(argument.dropFirst("--lighting-preview=".count)))
+        }.first
+        let previewBuild = Bundle.main.object(forInfoDictionaryKey: "KPHLightingPreview") as? Bool == true
+        return AppModel(preview: requested ?? (previewBuild ? .verify : nil))
+    }()
     var statusItem: NSStatusItem!
     let popover = NSPopover()
     var preferences: NSWindow?
     var diagnosticTimer: Timer?
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "").count > 1 {
+        if !model.isLightingPreview && NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "").count > 1 {
             NSApplication.shared.terminate(nil); return
         }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -27,8 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         model.start()
         updateStatus()
-        diagnosticTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.writeDiagnostics() }
-        if !model.accessibilityReady || !model.inputReady || CommandLine.arguments.contains("--settings") { openPreferences() }
+        if !model.isLightingPreview {
+            diagnosticTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.writeDiagnostics() }
+        }
+        if model.isLightingPreview || !model.accessibilityReady || !model.inputReady || CommandLine.arguments.contains("--settings") { openPreferences() }
     }
     func updateStatus() {
         statusItem.button?.image = PixelArt.menuImage(for: model.profile, paused: model.paused)
@@ -49,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         popover.performClose(nil)
         if preferences == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 600), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-            window.title = "Keypad Companion"
+            window.title = model.isLightingPreview ? "Keypad Companion · Offline lighting preview" : "Keypad Companion"
             window.titlebarAppearsTransparent = true
             window.backgroundColor = NSColor(red: 0.17, green: 0.11, blue: 0.08, alpha: 1)
             window.appearance = NSAppearance(named: .darkAqua)
@@ -92,6 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.windowsMenu = windowMenu
     }
     func writeDiagnostics() {
+        guard !model.isLightingPreview else { return }
         guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
         let directory = base.appendingPathComponent("KeypadCompanion", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

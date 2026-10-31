@@ -165,6 +165,15 @@ struct PreferencesView: View {
                     statusLabel
                 }
                 .padding(.horizontal, 28).padding(.top, 28).padding(.bottom, 20)
+                if model.isLightingPreview {
+                    Label("Offline preview · no keypad changes", systemImage: "eye")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(CoffeeTheme.latte)
+                        .padding(.horizontal, 13).padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(CoffeeTheme.espresso, in: RoundedRectangle(cornerRadius: 9))
+                        .padding(.horizontal, 28).padding(.bottom, 15)
+                }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
                         switch page {
@@ -186,7 +195,10 @@ struct PreferencesView: View {
         .foregroundStyle(CoffeeTheme.cream)
         .tint(CoffeeTheme.latte)
         .preferredColorScheme(.dark)
-        .onAppear { editingProfile = model.profile }
+        .onAppear {
+            editingProfile = model.profile
+            if model.isLightingPreview { page = .lights }
+        }
         .alert("Reset \(editingProfile.title) controls?", isPresented: $resetRequested) {
             Button("Cancel", role: .cancel) {}
             Button("Reset controls", role: .destructive) { model.resetMappings(for: editingProfile) }
@@ -242,8 +254,8 @@ struct PreferencesView: View {
 
     private var statusLabel: some View {
         HStack(spacing: 6) {
-            Circle().fill(needsSetup ? CoffeeTheme.latte : (connected ? CoffeeTheme.sage : CoffeeTheme.muted)).frame(width: 6, height: 6)
-            Text(needsSetup ? "Setup needed" : (connected ? "Keypad connected" : "Waiting for keypad"))
+            Circle().fill(model.isLightingPreview ? CoffeeTheme.muted : (needsSetup ? CoffeeTheme.latte : (connected ? CoffeeTheme.sage : CoffeeTheme.muted))).frame(width: 6, height: 6)
+            Text(model.isLightingPreview ? "Offline" : (needsSetup ? "Setup needed" : (connected ? "Keypad connected" : "Waiting for keypad")))
                 .font(.system(size: 10)).foregroundStyle(CoffeeTheme.muted)
         }
     }
@@ -348,7 +360,7 @@ struct PreferencesView: View {
             }
         }
         HStack {
-            Label("Saved automatically", systemImage: "checkmark.circle")
+            Label(model.isLightingPreview ? "Temporary preview edits" : "Saved automatically", systemImage: "checkmark.circle")
                 .font(.system(size: 11)).foregroundStyle(CoffeeTheme.sage)
             Spacer()
             Button("Reset \(editingProfile.title) controls…") { resetRequested = true }
@@ -361,6 +373,41 @@ struct PreferencesView: View {
     }
 
     @ViewBuilder private var lighting: some View {
+        if model.customLightingConnection != nil {
+            CustomLightsView(model: model)
+        } else if model.customFirmwarePresent {
+            unavailableCustomLighting
+        } else {
+            stockLighting
+        }
+    }
+
+    private var unavailableCustomLighting: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                PixelLightIcon(color: CoffeeTheme.latte).frame(width: 23, height: 29)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Custom lighting unavailable")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    Text("The keypad’s lighting connection needs checking.")
+                        .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                }
+            }
+            Text(model.customLightingStatus)
+                .font(.system(size: 12, weight: .medium))
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            Text("This keypad identifies as custom firmware. Color controls stay unavailable until the app confirms a compatible connection.")
+                .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Reconnect the keypad to check again. If the status asks you to reopen the app, quit and reopen Keypad Companion. If the connection still fails, the firmware needs a compatibility check.")
+                .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(20).background(CoffeeTheme.roast, in: RoundedRectangle(cornerRadius: 15))
+    }
+
+    @ViewBuilder private var stockLighting: some View {
         VStack(alignment: .leading, spacing: 16) {
             sectionHeading("A little light for your desk", subtitle: "Choose one effect for every profile, or let your lighting follow along.")
             HStack(spacing: 18) {
@@ -416,7 +463,7 @@ struct PreferencesView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(model.lightingStatus).font(.system(size: 12, weight: .medium))
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Choices save automatically. Pausing keypad controls doesn’t change the lighting.")
+                Text(model.isLightingPreview ? "Preview edits are temporary. Your keypad and saved settings are unchanged." : "Choices save automatically. Pausing keypad controls doesn’t change the lighting.")
                     .font(.system(size: 10)).foregroundStyle(CoffeeTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -428,11 +475,14 @@ struct PreferencesView: View {
 
         VStack(alignment: .leading, spacing: 8) {
             Text("What this keypad can do").font(.system(size: 12, weight: .semibold))
-            Text("Colors and animation are built into the keypad. Rainbow cycle moves across all three keys; it doesn’t keep all three steadily lit. Fixed profile colors, brightness, and speed aren’t supported by this model’s available controls.")
+            Text("Colors and animation are built into the keypad. Rainbow cycle moves across all three keys; it doesn’t keep all three steadily lit. Fixed profile colors, brightness, and speed aren’t supported by the stock firmware’s available controls.")
                 .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             Text("Choose Off for no blinking or color changes.")
                 .font(.system(size: 11, weight: .medium)).foregroundStyle(CoffeeTheme.latte)
+            Text("Per-light colors become available only with compatible custom firmware and a successful light check.")
+                .font(.system(size: 10)).foregroundStyle(CoffeeTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16).background(CoffeeTheme.espresso.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
     }
@@ -597,4 +647,272 @@ struct PreferencesView: View {
         }
     }
     private var rule: some View { Rectangle().fill(CoffeeTheme.line).frame(height: 1) }
+}
+
+// Custom color controls are available only after both a firmware handshake and
+// the user's physical check. The stock lighting view never offers RGB commands.
+private struct CustomLightsView: View {
+    @ObservedObject var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var editingProfile: Profile = .coding
+    @State private var selectedLED = 0
+
+    private var target: Profile? { model.rgbFollowsProfile ? editingProfile : nil }
+    private var scene: RGBLightingScene { model.rgbScene(for: target) }
+    private var selected: LEDSetting { scene.leds[selectedLED] }
+    private var isActiveScene: Bool { !model.rgbFollowsProfile || editingProfile == model.profile }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if model.customLightingVerified {
+                editor
+            } else {
+                hardwareCheck
+            }
+        }
+        .onAppear { editingProfile = model.profile }
+    }
+
+    private var hardwareCheck: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 10) {
+                PixelLightIcon(color: CoffeeTheme.latte).frame(width: 23, height: 29)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Let’s check your three lights")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    Text(model.isLightingPreview ? "Simulated firmware · hardware remains unverified" : "Custom firmware detected · hardware check needed")
+                        .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                }
+            }
+            Text(model.isLightingPreview ? "This demonstrates the light-check flow. The test and confirmation are simulated; your physical keypad stays unchanged." : "Color controls unlock after you confirm that the physical LEDs work. A successful connection alone can’t tell us what the lights are doing.")
+                .font(.system(size: 12)).foregroundStyle(CoffeeTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 12) {
+                checkStep("1", "Send a steady amber color to all three lights.")
+                checkStep("2", "Press, hold, and release each key. Turn and press the dial. All three lights should stay amber.")
+                checkStep("3", "Confirm below only if the lights stay steady throughout.")
+            }
+            HStack(spacing: 12) {
+                Text(model.paused ? "Keypad actions are paused for testing." : "Pause keypad actions before testing the keys.")
+                    .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Button(model.paused ? "Resume controls" : "Pause controls") { model.paused.toggle() }
+                    .buttonStyle(CoffeeButtonStyle())
+            }
+            HStack(spacing: 12) {
+                Button(model.customLightingTestInProgress ? "Sending test…" : (model.customLightingTestSent ? "Send test again" : "Test steady lights")) {
+                    model.beginRGBHardwareTest()
+                }
+                .buttonStyle(CoffeeButtonStyle(prominent: !model.customLightingTestSent))
+                .disabled(model.customLightingTestInProgress)
+                .opacity(model.customLightingTestInProgress ? 0.55 : 1)
+                Button("Turn lights off") { model.cancelRGBHardwareTest() }
+                    .buttonStyle(CoffeeButtonStyle())
+            }
+            Text(model.customLightingStatus)
+                .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel("Light check status: \(model.customLightingStatus)")
+            if model.customLightingTestSent {
+                Button(model.isLightingPreview ? "Preview color controls" : "All three stay steady") { model.confirmRGBHardwareTest() }
+                    .buttonStyle(CoffeeButtonStyle(prominent: true))
+            }
+        }
+        .padding(20).background(CoffeeTheme.roast, in: RoundedRectangle(cornerRadius: 15))
+    }
+
+    private func checkStep(_ number: String, _ description: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(number).font(.system(size: 11, weight: .semibold)).foregroundStyle(CoffeeTheme.latte)
+                .frame(width: 19, height: 19)
+                .background(CoffeeTheme.espresso, in: RoundedRectangle(cornerRadius: 5))
+            Text(description).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder private var editor: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("A color for every light")
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                Spacer()
+                Label(model.isLightingPreview ? "Simulated check" : "Checked by you", systemImage: "checkmark.circle")
+                    .font(.system(size: 10)).foregroundStyle(CoffeeTheme.sage)
+            }
+            HStack(spacing: 18) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Follow selected profile").font(.system(size: 13, weight: .medium))
+                    Text(model.rgbFollowsProfile ? "Each profile gets its own three-light palette." : "Use the same palette across all profiles.")
+                        .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Toggle("Follow selected profile", isOn: $model.rgbFollowsProfile)
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            if model.paused && !model.isLightingPreview {
+                HStack {
+                    Text("Keypad actions are still paused.")
+                        .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                    Spacer()
+                    Button("Resume controls") { model.paused = false }
+                        .buttonStyle(CoffeeButtonStyle())
+                }
+            }
+        }
+
+        if model.rgbFollowsProfile {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 8) {
+                    ForEach(Profile.allCases) { profile in
+                        profileButton(profile)
+                    }
+                }
+                Text(model.isLightingPreview ? "Editing a temporary \(editingProfile.title) palette. Your keypad stays unchanged." : (isActiveScene ? "Editing your active profile. Changes apply as you go." : "Editing \(editingProfile.title). This palette applies when you select that profile."))
+                    .font(.system(size: 10)).foregroundStyle(CoffeeTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 13) {
+                ForEach(0..<3, id: \.self) { index in
+                    lightPreview(index)
+                }
+            }
+            .accessibilityLabel("Palette preview. Choose a light to edit.")
+            Rectangle().fill(CoffeeTheme.line).frame(height: 1)
+            HStack {
+                Text("LED \(selectedLED + 1)").font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Toggle("Light on", isOn: Binding(
+                    get: { selected.enabled },
+                    set: { value in updateSelected { $0.enabled = value } }
+                ))
+                .font(.system(size: 11)).toggleStyle(.switch).controlSize(.small)
+                .accessibilityLabel("LED \(selectedLED + 1) enabled")
+            }
+            ColorPicker("Color", selection: Binding(
+                get: { color(selected.color) },
+                set: { value in
+                    guard let rgb = NSColor(value).usingColorSpace(.sRGB) else { return }
+                    updateSelected {
+                        $0.color = RGBColor(red: component(rgb.redComponent),
+                                            green: component(rgb.greenComponent),
+                                            blue: component(rgb.blueComponent))
+                    }
+                }
+            ), supportsOpacity: false)
+            .font(.system(size: 12))
+            .disabled(!selected.enabled)
+            .accessibilityLabel("LED \(selectedLED + 1) color")
+            HStack(spacing: 13) {
+                Text("Brightness").font(.system(size: 12)).frame(width: 70, alignment: .leading)
+                Slider(value: Binding(
+                    get: { Double(selected.brightness) },
+                    set: { value in updateSelected { $0.brightness = UInt8(value.rounded()) } }
+                ), in: 0...255, step: 1)
+                .accessibilityLabel("LED \(selectedLED + 1) brightness")
+                .accessibilityValue("\(brightnessPercent(selected)) percent")
+                Text("\(brightnessPercent(selected))%")
+                    .font(.system(size: 11)).monospacedDigit().frame(width: 35, alignment: .trailing)
+            }
+            .disabled(!selected.enabled)
+            HStack {
+                Button("Match all to LED \(selectedLED + 1)") {
+                    model.setRGBScene(RGBLightingScene(leds: Array(repeating: selected, count: 3)), for: target)
+                }
+                .buttonStyle(CoffeeButtonStyle())
+                .help("Copy this light’s color, brightness, and on/off setting to all three lights.")
+                Spacer()
+                Button("All lights off") {
+                    var updated = scene
+                    for index in updated.leds.indices { updated.leds[index].enabled = false }
+                    model.setRGBScene(updated, for: target)
+                }
+                .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+            }
+        }
+        .padding(16).background(CoffeeTheme.roast, in: RoundedRectangle(cornerRadius: 15))
+
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(model.customLightingStatus)
+                        .font(.system(size: 11, weight: .medium))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(model.isLightingPreview ? "Preview edits are temporary. Your keypad and saved settings are unchanged." : "Saved automatically on your Mac. Lights stay steady when you use the keys or dial.")
+                        .font(.system(size: 10)).foregroundStyle(CoffeeTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Button("Reapply colors") { model.reapplyRGBLighting() }
+                    .buttonStyle(CoffeeButtonStyle())
+            }
+            HStack {
+                Text("To identify a light’s position, turn the other two off briefly.")
+                    .font(.system(size: 10)).foregroundStyle(CoffeeTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button("Reset palette") { model.resetRGBScene(for: target) }
+                    .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(CoffeeTheme.latte)
+            }
+        }
+    }
+
+    private func profileButton(_ profile: Profile) -> some View {
+        let active = editingProfile == profile
+        return Button { editingProfile = profile } label: {
+            HStack(spacing: 8) {
+                PixelIcon(kind: profile.pixelIcon, color: active ? CoffeeTheme.espresso : profile.accent)
+                    .frame(width: 20, height: 20)
+                Text(profile.title).font(.system(size: 12, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 11)
+            .foregroundStyle(active ? CoffeeTheme.espresso : CoffeeTheme.cream)
+            .background(active ? CoffeeTheme.latte : CoffeeTheme.roast, in: RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Edit \(profile.title) lights\(active ? ", selected" : "")")
+    }
+
+    private func lightPreview(_ index: Int) -> some View {
+        let light = scene.leds[index]
+        let on = light.enabled && light.brightness > 0
+        let selected = selectedLED == index
+        return Button {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.12)) { selectedLED = index }
+        } label: {
+            VStack(spacing: 6) {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(on ? color(light.color).opacity(0.25 + Double(light.brightness) / 255 * 0.75) : CoffeeTheme.espresso)
+                    .frame(height: 36)
+                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(selected ? CoffeeTheme.cream : CoffeeTheme.line, lineWidth: selected ? 2 : 1))
+                    .overlay(Text("\(index + 1)").font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(CoffeeTheme.cream).frame(width: 25, height: 25)
+                        .background(CoffeeTheme.espresso.opacity(0.85), in: RoundedRectangle(cornerRadius: 5)))
+                Text(on ? "\(brightnessPercent(light))%" : "Off")
+                    .font(.system(size: 10, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? CoffeeTheme.cream : CoffeeTheme.muted)
+            }
+            .padding(5).frame(maxWidth: .infinity)
+            .background(selected ? CoffeeTheme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .help("Choose LED \(index + 1) to edit its color and brightness.")
+        .accessibilityLabel("LED \(index + 1), \(on ? "on at \(brightnessPercent(light)) percent" : "off")\(selected ? ", selected" : "")")
+        .accessibilityHint("Edit this light’s color, brightness, and on/off setting")
+    }
+
+    private func updateSelected(_ change: (inout LEDSetting) -> Void) {
+        var updated = scene
+        change(&updated.leds[selectedLED])
+        model.setRGBScene(updated, for: target)
+    }
+    private func color(_ rgb: RGBColor) -> Color {
+        Color(.sRGB, red: Double(rgb.red) / 255, green: Double(rgb.green) / 255, blue: Double(rgb.blue) / 255, opacity: 1)
+    }
+    private func component(_ value: CGFloat) -> UInt8 { UInt8(min(255, max(0, (value * 255).rounded()))) }
+    private func brightnessPercent(_ light: LEDSetting) -> Int { Int((Double(light.brightness) * 100 / 255).rounded()) }
 }

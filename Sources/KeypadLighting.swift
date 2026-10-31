@@ -177,8 +177,23 @@ private enum LightingUSB {
         try check(IOServiceGetMatchingServices(kIOMainPortDefault, match, &iterator), "find keypad")
         defer { IOObjectRelease(iterator) }
         var result: [io_service_t] = []
-        while case let service = IOIteratorNext(iterator), service != 0 { result.append(service) }
+        while case let service = IOIteratorNext(iterator), service != 0 {
+            // Custom firmware deliberately retains the keyboard's VID/PID so
+            // existing input mappings work. Its product/manufacturer identity
+            // must therefore be excluded before any legacy USB transaction.
+            if isCustomFirmware(service) { IOObjectRelease(service) }
+            else { result.append(service) }
+        }
         return result
+    }
+
+    private static func isCustomFirmware(_ service: io_service_t) -> Bool {
+        func string(_ key: String) -> String {
+            IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?
+                .takeRetainedValue() as? String ?? ""
+        }
+        return CustomFirmwareIdentity.belongsToCustomFamily(
+            product: string(kUSBProductString), manufacturer: string(kUSBVendorString))
     }
 
     static func query<T>(_ service: io_service_t, client: CFUUID, interface: CFUUID,
@@ -199,6 +214,7 @@ private enum LightingUSB {
 
     static func write(mode: Int, to service: io_service_t) throws {
         guard (0...2).contains(mode) else { throw Failure(message: "unsupported lighting mode") }
+        guard !isCustomFirmware(service) else { throw Failure(message: "custom firmware requires the RGB lighting channel") }
         let device = try query(service, client: deviceClientID, interface: deviceID, as: IOUSBDeviceInterface.self)
         defer { _ = device.pointee!.pointee.Release(device) }
         var request = IOUSBFindInterfaceRequest(bInterfaceClass: UInt16(kIOUSBFindInterfaceDontCare),

@@ -28,9 +28,8 @@ jobs:
 
       - name: Check controls and profiles
         run: |
-          mkdir -p .cache
-          swiftc -swift-version 5 -module-cache-path .cache Sources/Domain.swift Tests/main.swift -o .cache/domain-tests
-          .cache/domain-tests
+          bash Tests/run.sh
+          make -C Firmware test
 
       - name: Build the app
         run: bash build.sh
