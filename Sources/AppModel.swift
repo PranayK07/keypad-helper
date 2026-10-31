@@ -4,7 +4,7 @@ import ServiceManagement
 import ApplicationServices
 
 final class AppModel: ObservableObject {
-    @Published var profile: Profile { didSet { executor.cancelPending(); defaults.set(profile.rawValue, forKey: "profile"); onChange?() } }
+    @Published var profile: Profile { didSet { executor.cancelPending(); defaults.set(profile.rawValue, forKey: "profile"); applyLighting(); onChange?() } }
     @Published var paused: Bool { didSet { executor.cancelPending(); defaults.set(paused, forKey: "paused"); onChange?() } }
     @Published var deviceStatus = "Checking keypad permissions"
     @Published var lastAction = "Ready when you are"
@@ -15,6 +15,10 @@ final class AppModel: ObservableObject {
     @Published var volumeStep: Double { didSet { defaults.set(volumeStep, forKey: "volumeStep") } }
     @Published var loginEnabled = false
     @Published var loginStatus = "Checking login item"
+    @Published var lightingFollowsProfile: Bool { didSet { defaults.set(lightingFollowsProfile, forKey: "lightingFollowsProfile"); applyLighting() } }
+    @Published var lightingMode: LEDMode { didSet { defaults.set(lightingMode.rawValue, forKey: "lightingMode"); applyLighting() } }
+    @Published var lightingStatus = "Checking keypad lighting"
+    @Published private var profileLighting: [Profile: LEDMode]
     @Published private var mappings: [Profile: [KeyAction]]
     var onChange: (() -> Void)?
     var onProfileSelected: (() -> Void)?
@@ -22,6 +26,7 @@ final class AppModel: ObservableObject {
     private let defaults = UserDefaults.standard
     private let input = KeypadInput()
     private let executor = ActionExecutor()
+    private let lighting = KeypadLighting()
     private var held: [ControlKey: KeyAction] = [:]
     private var inputCounts: [String: Int] = [:]
     private var pressTimes: [ControlKey: TimeInterval] = [:]
@@ -36,6 +41,10 @@ final class AppModel: ObservableObject {
         callsTarget = CallTarget(rawValue: d.string(forKey: "callsTarget") ?? "") ?? .autoDetect
         volumeStep = min(20, max(1, d.object(forKey: "volumeStep") as? Double ?? 5))
         mappings = ProfileMappings.load(d.dictionary(forKey: "mappings") as? [String: [String]] ?? [:])
+        lightingFollowsProfile = d.bool(forKey: "lightingFollowsProfile")
+        lightingMode = LEDMode(rawValue: d.integer(forKey: "lightingMode")) ?? .off
+        profileLighting = LightingPreferences.load(d.dictionary(forKey: "profileLighting") as? [String: Int] ?? [:])
+        lighting.onStatus = { [weak self] in self?.lightingStatus = $0 }
         input.onStatus = { [weak self] in self?.deviceStatus = $0 }
         input.onUnknown = { [weak self] in self?.lastInput = "Unmapped key (HID \($0)) — check keypad bindings" }
         input.onControl = { [weak self] control, down in self?.receive(control, down: down) }
@@ -53,6 +62,18 @@ final class AppModel: ObservableObject {
         let index = choices.firstIndex(of: profile) ?? 0
         selectProfile(choices[(index + 1) % choices.count])
     }
+    func lightingMode(for profile: Profile) -> LEDMode { profileLighting[profile] ?? .off }
+    func setLightingMode(_ mode: LEDMode, for profile: Profile) {
+        profileLighting[profile] = mode
+        defaults.set(Dictionary(uniqueKeysWithValues: profileLighting.map { ($0.key.rawValue, $0.value.rawValue) }), forKey: "profileLighting")
+        applyLighting()
+    }
+    private var activeLightingMode: LEDMode {
+        LightingPreferences.resolved(followsProfile: lightingFollowsProfile, global: lightingMode,
+                                     profiles: profileLighting, active: profile)
+    }
+    private func applyLighting() { lighting.apply(mode: activeLightingMode) }
+    func reapplyLighting() { lighting.apply(mode: activeLightingMode, force: true) }
     func action(for control: ControlKey) -> KeyAction { action(for: control, in: profile) }
     func action(for control: ControlKey, in profile: Profile) -> KeyAction { mappings[profile]![control.rawValue] }
     func actionTitle(for control: ControlKey) -> String {
@@ -82,6 +103,8 @@ final class AppModel: ObservableObject {
         defaults.set(Dictionary(uniqueKeysWithValues: mappings.map { ($0.key.rawValue, $0.value.map(\.rawValue)) }), forKey: "mappings")
     }
     func start() {
+        lighting.start()
+        applyLighting()
         refreshPermissions()
         refreshLogin()
         // The user requested launch on every login. Attempt once; respect later OS opt-out.
@@ -151,8 +174,8 @@ final class AppModel: ObservableObject {
     }
     func openSettings() { showSettings?() }
     func quit() { shutdown(); NSApplication.shared.terminate(nil) }
-    func shutdown() { timer?.invalidate(); executor.cancelPending(); input.stop() }
+    func shutdown() { timer?.invalidate(); executor.cancelPending(); input.stop(); lighting.stop() }
     func diagnosticSnapshot() -> [String: Any] {
-        ["profile": profile.rawValue, "paused": paused, "inputPermission": inputReady, "accessibilityPermission": accessibilityReady, "device": deviceStatus, "loginEnabled": loginEnabled, "loginStatus": loginStatus, "lastInput": lastInput, "lastAction": lastAction, "callsTarget": callsTarget.rawValue, "inputCounts": inputCounts]
+        ["profile": profile.rawValue, "paused": paused, "inputPermission": inputReady, "accessibilityPermission": accessibilityReady, "device": deviceStatus, "loginEnabled": loginEnabled, "loginStatus": loginStatus, "lastInput": lastInput, "lastAction": lastAction, "callsTarget": callsTarget.rawValue, "inputCounts": inputCounts, "lightingMode": activeLightingMode.rawValue, "lightingFollowsProfile": lightingFollowsProfile, "lightingStatus": lightingStatus]
     }
 }

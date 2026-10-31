@@ -37,10 +37,13 @@ This is an early release and isn't notarized by Apple yet. If macOS blocks it, s
 - **The dial stays useful**—it controls the profile you're in, never switches profiles.
 - **Settings → Overview** shows your controls and lets you pause them.
 - **Settings → Profiles** lets you customize a profile without switching into it. Changes save automatically.
+- **Settings → Lights** gives you Lights off, Key glow, or Rainbow cycle. Use one effect everywhere or pick an effect for each profile. Lights start off until you choose an effect.
 - **Settings → Preferences** handles launch at login, call-app selection, and volume steps.
 - **Close settings** when you're done. The menu-bar companion keeps running.
 
 Calls can follow whichever supported call app is in front, with Discord as the fallback. The profile itself stays where you put it.
+
+The keypad chooses the colors in its built-in lighting effects. Rainbow cycle moves across all three keys; fixed colors and all three lights staying steadily on are not supported by this model’s available controls. Choose **Lights off** to stop blinking and color changes.
 
 ---
 

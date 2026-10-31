@@ -47,6 +47,24 @@ private struct CoffeeButtonStyle: ButtonStyle {
     }
 }
 
+private struct PixelLightIcon: View {
+    let color: Color
+    private let rows = ["0011100", "0100010", "1000001", "1000001", "0100010", "0010100", "0011100", "0011100", "0001000"]
+    var body: some View {
+        Canvas { context, size in
+            let unit = floor(min(size.width / 7, size.height / 9))
+            let origin = CGPoint(x: (size.width - unit * 7) / 2, y: (size.height - unit * 9) / 2)
+            for (y, row) in rows.enumerated() {
+                for (x, pixel) in row.enumerated() where pixel == "1" {
+                    context.fill(Path(CGRect(x: origin.x + CGFloat(x) * unit, y: origin.y + CGFloat(y) * unit,
+                                             width: unit, height: unit)), with: .color(color))
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 struct CompanionView: View {
     @ObservedObject var model: AppModel
     @State private var hovered: Profile?
@@ -117,10 +135,10 @@ struct CompanionView: View {
 }
 
 private enum SettingsPage: String, CaseIterable, Identifiable {
-    case overview = "Overview", profiles = "Profiles", preferences = "Preferences"
+    case overview = "Overview", profiles = "Profiles", lights = "Lights", preferences = "Preferences"
     var id: String { rawValue }
     var icon: PixelIcon.Kind {
-        switch self { case .overview: return .keyboard; case .profiles: return .pencil; case .preferences: return .dial }
+        switch self { case .overview, .lights: return .keyboard; case .profiles: return .pencil; case .preferences: return .dial }
     }
 }
 
@@ -152,6 +170,7 @@ struct PreferencesView: View {
                         switch page {
                         case .overview: overview
                         case .profiles: profileEditor
+                        case .lights: lighting
                         case .preferences: preferences
                         }
                     }
@@ -186,8 +205,13 @@ struct PreferencesView: View {
                         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.15)) { page = item }
                     } label: {
                         HStack(spacing: 10) {
-                            PixelIcon(kind: item.icon, color: page == item ? CoffeeTheme.latte : CoffeeTheme.muted)
-                                .frame(width: 24, height: 19)
+                            if item == .lights {
+                                PixelLightIcon(color: page == item ? CoffeeTheme.latte : CoffeeTheme.muted)
+                                    .frame(width: 24, height: 19)
+                            } else {
+                                PixelIcon(kind: item.icon, color: page == item ? CoffeeTheme.latte : CoffeeTheme.muted)
+                                    .frame(width: 24, height: 19)
+                            }
                             Text(item.rawValue).font(.system(size: 12, weight: page == item ? .semibold : .regular))
                             Spacer(minLength: 0)
                         }
@@ -334,6 +358,108 @@ struct PreferencesView: View {
              editingProfile == .music ? "Music actions control Spotify, even when you’re using another app." :
              "Calls use the app chosen in Preferences. Microphone and camera shortcuts require that app in front.")
             .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted).fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder private var lighting: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            sectionHeading("A little light for your desk", subtitle: "Choose one effect for every profile, or let your lighting follow along.")
+            HStack(spacing: 18) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Follow selected profile").font(.system(size: 13, weight: .medium))
+                    Text(model.lightingFollowsProfile ? "Switching profiles also changes the lighting effect." : "Use the same lighting effect for Coding, Music, and Calls.")
+                        .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Toggle("Follow selected profile", isOn: $model.lightingFollowsProfile)
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+        }
+
+        if model.lightingFollowsProfile {
+            VStack(alignment: .leading, spacing: 16) {
+                sectionHeading("An effect for each profile", subtitle: "Editing a profile here won’t switch your active profile.")
+                ForEach(Profile.allCases) { profile in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 10) {
+                            PixelIcon(kind: profile.pixelIcon, color: profile.accent).frame(width: 22, height: 22)
+                            Text(profile.title).font(.system(size: 12, weight: .semibold))
+                            if model.profile == profile {
+                                Text("Active").font(.system(size: 9, weight: .medium)).foregroundStyle(CoffeeTheme.sage)
+                            }
+                            Spacer(minLength: 8)
+                            Picker("\(profile.title) lighting", selection: Binding(
+                                get: { model.lightingMode(for: profile) },
+                                set: { model.setLightingMode($0, for: profile) }
+                            )) {
+                                ForEach(LEDMode.allCases) { Text($0.title).tag($0) }
+                            }
+                            .labelsHidden().frame(width: 172)
+                        }
+                        Text(model.lightingMode(for: profile).detail)
+                            .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if profile != .calls { rule }
+                }
+            }
+            .padding(18).background(CoffeeTheme.roast, in: RoundedRectangle(cornerRadius: 15))
+        } else {
+            VStack(spacing: 8) {
+                ForEach(LEDMode.allCases) { mode in
+                    lightingChoice(mode)
+                }
+            }
+        }
+
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(model.lightingStatus).font(.system(size: 12, weight: .medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Choices save automatically. Pausing keypad controls doesn’t change the lighting.")
+                    .font(.system(size: 10)).foregroundStyle(CoffeeTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Button("Reapply effect") { model.reapplyLighting() }
+                .buttonStyle(CoffeeButtonStyle())
+                .help("Send the active lighting effect to the connected keypad again.")
+        }
+
+        VStack(alignment: .leading, spacing: 8) {
+            Text("What this keypad can do").font(.system(size: 12, weight: .semibold))
+            Text("Colors and animation are built into the keypad. Rainbow cycle moves across all three keys; it doesn’t keep all three steadily lit. Fixed profile colors, brightness, and speed aren’t supported by this model’s available controls.")
+                .font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Choose Off for no blinking or color changes.")
+                .font(.system(size: 11, weight: .medium)).foregroundStyle(CoffeeTheme.latte)
+        }
+        .padding(16).background(CoffeeTheme.espresso.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func lightingChoice(_ mode: LEDMode) -> some View {
+        let selected = model.lightingMode == mode
+        return Button { model.lightingMode = mode } label: {
+            HStack(spacing: 13) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 17)).foregroundStyle(selected ? CoffeeTheme.latte : CoffeeTheme.muted)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(mode.title).font(.system(size: 13, weight: .semibold))
+                    Text(mode.detail).font(.system(size: 11)).foregroundStyle(CoffeeTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(CoffeeTheme.cream)
+            .padding(.horizontal, 16).padding(.vertical, 13)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selected ? CoffeeTheme.raised : CoffeeTheme.roast, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? CoffeeTheme.latte.opacity(0.55) : Color.clear, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(mode.title)\(selected ? ", selected" : "")")
+        .accessibilityHint(mode.detail)
     }
 
     @ViewBuilder private var preferences: some View {

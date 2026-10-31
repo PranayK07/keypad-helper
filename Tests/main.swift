@@ -107,4 +107,31 @@ check(CallTarget.resolve(.autoDetect, foreground: "com.apple.TextEdit") == .disc
 check(CallTarget.resolve(.autoDetect, foreground: "us.zoom.xos.untrusted") == .discord,
       "Bundle IDs must not be matched by prefix")
 
+// Unknown persisted settings must never become arbitrary device commands.
+check(LEDMode.allCases.map(\.rawValue) == [0, 1, 2], "Only verified LED modes may be exposed")
+let lightingDefaults = LightingPreferences.load([:])
+check(lightingDefaults.values.allSatisfy { $0 == .off } && lightingDefaults.count == 3,
+      "New lighting settings should start with lights off")
+let damagedLighting = LightingPreferences.load(["coding": -1, "music": 2, "calls": 255, "future": 1])
+check(damagedLighting == [.coding: .off, .music: .rainbow, .calls: .off],
+      "Corrupt lighting values fall back per profile, preserving supported values")
+for coding in LEDMode.allCases {
+    for music in LEDMode.allCases {
+        for calls in LEDMode.allCases {
+            let modes: [Profile: LEDMode] = [.coding: coding, .music: music, .calls: calls]
+            let stored = Dictionary(uniqueKeysWithValues: modes.map { ($0.key.rawValue, $0.value.rawValue) })
+            check(LightingPreferences.load(stored) == modes, "Profile effects must round-trip")
+            for global in LEDMode.allCases {
+                for active in Profile.allCases {
+                    check(LightingPreferences.resolved(followsProfile: true, global: global,
+                          profiles: modes, active: active) == modes[active], "Active profile chooses its effect")
+                    check(LightingPreferences.resolved(followsProfile: false, global: global,
+                          profiles: modes, active: active) == global, "Global effect ignores profile changes")
+                }
+            }
+        }
+    }
+}
+check(LightingPreferences.resolved(followsProfile: true, global: .rainbow, profiles: [:], active: .calls) == .off,
+      "Missing profile effect should be off")
 print("Passed \(checks) pure domain checks (no app or device side effects).")

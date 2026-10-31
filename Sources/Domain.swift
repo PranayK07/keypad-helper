@@ -5,6 +5,38 @@ enum Profile: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
 }
+
+// Only the three effects supported by the 1189:8890 firmware are exposed.
+enum LEDMode: Int, CaseIterable, Identifiable {
+    case off = 0, reactive = 1, rainbow = 2
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .off: return "Lights off"
+        case .reactive: return "Key glow"
+        case .rainbow: return "Rainbow cycle"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .off: return "Keep the keypad dark, including when you press a key."
+        case .reactive: return "The keypad’s single-key effect changes colors as you use it."
+        case .rainbow: return "Colors move across all three keys. They do not stay steady."
+        }
+    }
+}
+
+struct LightingPreferences {
+    static func load(_ stored: [String: Int]) -> [Profile: LEDMode] {
+        Dictionary(uniqueKeysWithValues: Profile.allCases.map {
+            ($0, LEDMode(rawValue: stored[$0.rawValue] ?? 0) ?? .off)
+        })
+    }
+    static func resolved(followsProfile: Bool, global: LEDMode,
+                         profiles: [Profile: LEDMode], active: Profile) -> LEDMode {
+        followsProfile ? (profiles[active] ?? .off) : global
+    }
+}
 enum ControlKey: Int, CaseIterable, Identifiable {
     case key1 = 0, key2, key3, ccw, press, cw
     var id: Int { rawValue }
